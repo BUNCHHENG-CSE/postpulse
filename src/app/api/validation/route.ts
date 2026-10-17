@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDrafts, getEvents, getSettings, saveDraft, updateEventStatus } from '@/lib/storage';
 import { generateDraft } from '@/lib/generator';
+import { prisma } from '@/lib/db';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -15,10 +16,27 @@ interface ValidationGrade {
 
 async function getGrades(): Promise<Record<string, ValidationGrade>> {
   try {
+    const rows = await prisma.validationGrade.findMany();
+    if (rows && rows.length > 0) {
+      const result: Record<string, ValidationGrade> = {};
+      for (const r of rows) {
+        result[r.eventId] = {
+          eventId: r.eventId,
+          grade: r.grade as any,
+          developerFeedback: r.developerFeedback || undefined,
+          ratedAt: r.ratedAt instanceof Date ? r.ratedAt.toISOString() : String(r.ratedAt),
+        };
+      }
+      return result;
+    }
+  } catch {
+    // Fallback to file
+  }
+
+  try {
     const raw = await fs.readFile(VALIDATION_FILE, 'utf-8');
     return JSON.parse(raw);
   } catch {
-    // Default initial simulated ratings demonstrating the benchmark
     const initial: Record<string, ValidationGrade> = {
       evt_commit_01: {
         eventId: 'evt_commit_01',
@@ -55,8 +73,33 @@ async function getGrades(): Promise<Record<string, ValidationGrade>> {
   }
 }
 
+async function saveSingleGrade(grade: ValidationGrade) {
+  try {
+    await prisma.validationGrade.upsert({
+      where: { eventId: grade.eventId },
+      update: {
+        grade: grade.grade,
+        developerFeedback: grade.developerFeedback,
+      },
+      create: {
+        id: `grade_${grade.eventId}`,
+        eventId: grade.eventId,
+        grade: grade.grade,
+        developerFeedback: grade.developerFeedback,
+        ratedAt: new Date(grade.ratedAt),
+      },
+    });
+  } catch {
+    // Fallback
+  }
+}
+
 async function saveGrades(grades: Record<string, ValidationGrade>) {
-  await fs.writeFile(VALIDATION_FILE, JSON.stringify(grades, null, 2), 'utf-8');
+  try {
+    await fs.writeFile(VALIDATION_FILE, JSON.stringify(grades, null, 2), 'utf-8');
+  } catch {
+    // File fallback ignore
+  }
 }
 
 export async function GET() {
@@ -150,6 +193,7 @@ export async function POST(req: NextRequest) {
         developerFeedback: developerFeedback || '',
         ratedAt: new Date().toISOString(),
       };
+      await saveSingleGrade(grades[eventId]);
       await saveGrades(grades);
 
       return NextResponse.json({ success: true, saved: grades[eventId] });
