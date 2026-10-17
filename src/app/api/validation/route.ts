@@ -157,24 +157,34 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     if (body.action === 'batch_generate_all') {
-      const events = await getEvents();
-      const settings = await getSettings();
+      const [events, settings, allDrafts] = await Promise.all([
+        getEvents(),
+        getSettings(),
+        getDrafts(),
+      ]);
       let generated = 0;
+      const draftsToSave = [];
+      const eventIdsToUpdate: string[] = [];
 
       for (const event of events.slice(0, 10)) {
-        const existingDrafts = (await getDrafts()).filter((d) => d.eventId === event.id);
-        if (existingDrafts.length < 3) {
+        const existingCount = allDrafts.filter((d) => d.eventId === event.id).length;
+        if (existingCount < 3) {
           const [t, b, c] = await Promise.all([
             generateDraft(event, 'technical_lesson', settings),
             generateDraft(event, 'build_in_public', settings),
             generateDraft(event, 'changelog', settings),
           ]);
-          await saveDraft(t);
-          await saveDraft(b);
-          await saveDraft(c);
-          await updateEventStatus(event.id, 'drafted');
+          draftsToSave.push(t, b, c);
+          eventIdsToUpdate.push(event.id);
           generated += 3;
         }
+      }
+
+      for (const draft of draftsToSave) {
+        await saveDraft(draft);
+      }
+      for (const id of eventIdsToUpdate) {
+        await updateEventStatus(id, 'drafted');
       }
 
       return NextResponse.json({ success: true, generated });

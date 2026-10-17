@@ -364,10 +364,14 @@ export async function getDraftsByEventId(eventId: string): Promise<ContentDraft[
 }
 
 export async function saveDraft(draft: ContentDraft): Promise<ContentDraft> {
-  await ensurePostgresInitialized();
   try {
     await prisma.draft.upsert({
-      where: { id: draft.id },
+      where: {
+        eventId_format: {
+          eventId: draft.eventId,
+          format: draft.format,
+        },
+      },
       update: {
         title: draft.title,
         hook: draft.hook,
