@@ -30,23 +30,40 @@ The developer edits, reviews the pre-publish checklist, and copies directly to t
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start (with PostgreSQL & WSL Docker)
 
 ### 1. Requirements
 - Node.js 18+ (tested on Node 24)
-- npm 9+
+- WSL2 with Docker (Ubuntu distribution)
 
-### 2. Install & Start
-```bash
-# Clone or navigate to the directory
-cd "d:\Program\Developer Monetization & Growth\Build-in-Public Content Engine"
+### 2. Start PostgreSQL via WSL Docker
+```powershell
+# Start PostgreSQL 16 container with healthchecks and auto-keepalive
+.\scripts\wsl-docker-up.ps1
 
-# Install dependencies
-npm install
+# Or manually via WSL Docker:
+wsl docker compose up -d
+```
+> **Port Configuration:** The PostgreSQL container is mapped to port `5435` on `127.0.0.1` (`postgresql://postgres:postgres@127.0.0.1:5435/postpulse?schema=public`) to prevent conflicts with other local Postgres instances.
 
-# Start development server
+### 3. Sync Schema & Seed Database
+```powershell
+# Push schema tables & b-tree indexes to PostgreSQL
+npm run db:push
+
+# Seed the 10 real validation benchmark commits & default voice settings
+npm run db:seed
+
+# Verify database health & row counts
+node ./scripts/verify-db.mjs
+```
+
+### 4. Start the Application
+```powershell
+# Development server
 npm run dev
-# OR build and run production server
+
+# OR Production build & start
 npm run build
 npm run start
 ```

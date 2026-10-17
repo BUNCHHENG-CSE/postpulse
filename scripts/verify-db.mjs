@@ -1,4 +1,17 @@
 import { PrismaClient } from '@prisma/client';
+import fs from 'fs';
+
+// Load .env
+if (fs.existsSync('.env')) {
+  const envContent = fs.readFileSync('.env', 'utf-8');
+  for (const line of envContent.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+      const [k, ...v] = trimmed.split('=');
+      process.env[k.trim()] = v.join('=').trim().replace(/^["']|["']$/g, '');
+    }
+  }
+}
 
 const prisma = new PrismaClient();
 
