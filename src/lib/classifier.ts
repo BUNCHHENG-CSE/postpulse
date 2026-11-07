@@ -9,6 +9,7 @@ interface ClassifyInput {
     deletions: number;
     totalFiles: number;
   };
+  [key: string]: any;
 }
 
 export function classifyGitEvent(input: ClassifyInput): PostWorthiness {

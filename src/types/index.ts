@@ -49,6 +49,9 @@ export interface GitEvent {
   };
   files: FileChange[];
   rawDiffSnippet?: string;
+  category?: CommitCategory;
+  worthinessScore?: number;
+  reasons?: string[];
   worthiness: PostWorthiness;
   status: 'pending' | 'drafted' | 'published' | 'dismissed';
 }
@@ -117,3 +120,38 @@ export interface ValidationMetric {
     unpublishable: number;
   };
 }
+
+export interface TweetThreadItem {
+  index: number;
+  total: number;
+  text: string;
+  charCount: number;
+  isValidLength: boolean;
+}
+
+export interface HeadlineVariation {
+  id: string;
+  angle: 'war_story' | 'metric' | 'contrarian' | 'vulnerable' | 'how_to';
+  label: string;
+  headline: string;
+  explanation: string;
+}
+
+export interface SubredditRecommendation {
+  name: string;
+  sub: string;
+  matchReason: string;
+  recommendedFlair?: string;
+  antiBanTips: string;
+  url: string;
+}
+
+export interface WeeklyDigest {
+  newsletter: string;
+  releaseNotes: string;
+  redditRecap: string;
+  commitCount: number;
+  eventIds: string[];
+  generatedAt: string;
+}
+

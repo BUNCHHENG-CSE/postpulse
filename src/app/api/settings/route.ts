@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSettings, resetToDefaultDataset, saveSettings } from '@/lib/storage';
+import { DEFAULT_SETTINGS, getSettings, resetToDefaultDataset, saveSettings } from '@/lib/storage';
 
 export async function GET() {
   try {
@@ -27,7 +27,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, message: 'Reset to seed benchmark dataset', count: events.length });
     }
 
-    const updated = await saveSettings(body);
+    if (body.action === 'reset_settings') {
+      const reset = await saveSettings(DEFAULT_SETTINGS);
+      return NextResponse.json({ success: true, settings: reset, message: 'Settings reset to default' });
+    }
+
+    const cleanBody = { ...body };
+    if (typeof cleanBody.openaiApiKey === 'string' && cleanBody.openaiApiKey.includes('••••')) {
+      delete cleanBody.openaiApiKey;
+    }
+    if (typeof cleanBody.anthropicApiKey === 'string' && cleanBody.anthropicApiKey.includes('••••')) {
+      delete cleanBody.anthropicApiKey;
+    }
+    if (typeof cleanBody.geminiApiKey === 'string' && cleanBody.geminiApiKey.includes('••••')) {
+      delete cleanBody.geminiApiKey;
+    }
+
+    const updated = await saveSettings(cleanBody);
     return NextResponse.json({ success: true, settings: updated });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

@@ -3,40 +3,40 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
 model Event {
-  id              String   @id @db.VarChar(64)
-  type            String   @default("commit") @db.VarChar(32)
-  repo            String   @db.VarChar(128)
-  branch          String   @default("main") @db.VarChar(64)
-  authorName      String   @db.VarChar(128)
-  authorUsername  String   @db.VarChar(128)
-  authorAvatarUrl String?  @db.VarChar(512)
+  id              String   @id
+  type            String   @default("commit")
+  repo            String
+  branch          String   @default("main")
+  authorName      String
+  authorUsername  String
+  authorAvatarUrl String?
   timestamp       DateTime @default(now())
-  title           String   @db.VarChar(512)
-  description     String?  @db.Text
-  sha             String   @db.VarChar(64)
-  shortSha        String   @db.VarChar(16)
-  url             String   @db.VarChar(512)
+  title           String
+  description     String?
+  sha             String
+  shortSha        String
+  url             String
   additions       Int      @default(0)
   deletions       Int      @default(0)
   totalFiles      Int      @default(1)
   filesJson       Json     @default("[]")
-  rawDiffSnippet  String?  @db.Text
+  rawDiffSnippet  String?
   worthinessScore Int      @default(50)
-  category        String   @default("chore_internal") @db.VarChar(64)
+  category        String   @default("chore_internal")
   reasons         Json     @default("[]")
-  recommendedHook String?  @db.VarChar(512)
-  status          String   @default("pending") @db.VarChar(32) // pending | drafted | published | dismissed
+  recommendedHook String?
+  status          String   @default("pending") // pending | drafted | published | dismissed
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   drafts          Draft[]
 
-  // High-performance compound indexes for feed filtering and sorting
+  // Compound indexes for feed filtering and sorting
   @@index([status, worthinessScore(sort: Desc)])
   @@index([category, worthinessScore(sort: Desc)])
   @@index([repo, timestamp(sort: Desc)])
@@ -45,21 +45,21 @@ model Event {
 }
 
 model Draft {
-  id                String   @id @db.VarChar(64)
-  eventId           String   @db.VarChar(64)
+  id                String   @id
+  eventId           String
   event             Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  format            String   @db.VarChar(32) // technical_lesson | build_in_public | changelog
-  targetPlatform    String   @db.VarChar(32) // reddit | indie_hackers | linkedin | x_twitter | changelog | dev_to
-  platformName      String   @db.VarChar(64)
-  title             String   @db.VarChar(512)
-  hook              String?  @db.Text
-  content           String   @db.Text
-  tone              String   @default("authentic_raw") @db.VarChar(32)
+  format            String   // technical_lesson | build_in_public | changelog
+  targetPlatform    String   // reddit | indie_hackers | linkedin | x_twitter | changelog | dev_to
+  platformName      String
+  title             String
+  hook              String?
+  content           String
+  tone              String   @default("authentic_raw")
   wordCount         Int      @default(0)
   publishChecklist  Json     @default("[]")
-  estimatedReadTime String   @default("1 min read") @db.VarChar(32)
+  estimatedReadTime String   @default("1 min read")
   isEdited          Boolean  @default(false)
-  publishedUrl      String?  @db.VarChar(512)
+  publishedUrl      String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -71,28 +71,28 @@ model Draft {
 }
 
 model Settings {
-  id                  String   @id @default("default") @db.VarChar(32)
-  productName         String   @default("PostPulse") @db.VarChar(128)
-  productTagline      String   @default("Turn your git commits into viral developer content automatically") @db.VarChar(255)
-  targetAudience      String   @default("Indie hackers, micro-SaaS founders, and full-stack software engineers") @db.VarChar(255)
-  founderVoiceBio     String   @default("Solo developer, ex-infrastructure engineer, no-nonsense technical tone with zero marketing hype") @db.Text
-  repoUrl             String   @default("https://github.com/developer/postpulse") @db.VarChar(255)
-  githubWebhookSecret String   @default("dev_secret_content_engine_123") @db.VarChar(128)
-  githubToken         String?  @db.VarChar(255)
-  openaiApiKey        String?  @db.VarChar(255)
-  anthropicApiKey     String?  @db.VarChar(255)
-  geminiApiKey        String?  @db.VarChar(255)
-  preferredModel      String   @default("gpt-4o-mini") @db.VarChar(64)
+  id                  String   @id @default("default")
+  productName         String   @default("TCT PostPulse")
+  productTagline      String   @default("Turn your git commits into viral developer content automatically")
+  targetAudience      String   @default("Indie hackers, micro-SaaS founders, and full-stack software engineers")
+  founderVoiceBio     String   @default("Solo developer, ex-infrastructure engineer, no-nonsense technical tone with zero marketing hype")
+  repoUrl             String   @default("https://github.com/developer/tct-postpulse")
+  githubWebhookSecret String   @default("dev_secret_content_engine_123")
+  githubToken         String?
+  openaiApiKey        String?
+  anthropicApiKey     String?
+  geminiApiKey        String?
+  preferredModel      String   @default("gpt-4o-mini")
   minScoreToDraft     Int      @default(50)
   autoDraftOnWebhook  Boolean  @default(true)
   updatedAt           DateTime @updatedAt
 }
 
 model ValidationGrade {
-  id                String   @id @db.VarChar(64)
-  eventId           String   @unique @db.VarChar(64)
-  grade             String   @db.VarChar(32) // ready_as_is | light_edits | heavy_edits | unpublishable
-  developerFeedback String?  @db.Text
+  id                String   @id
+  eventId           String   @unique
+  grade             String   // ready_as_is | light_edits | heavy_edits | unpublishable
+  developerFeedback String?
   ratedAt           DateTime @default(now())
 
   @@index([grade])

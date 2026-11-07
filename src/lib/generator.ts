@@ -1,4 +1,14 @@
-import { ContentDraft, DraftFormat, EngineSettings, GitEvent, ToneStyle } from '@/types';
+import {
+  ContentDraft,
+  DraftFormat,
+  EngineSettings,
+  GitEvent,
+  HeadlineVariation,
+  SubredditRecommendation,
+  ToneStyle,
+  TweetThreadItem,
+  WeeklyDigest,
+} from '@/types';
 import { buildSystemPrompt, buildUserPrompt } from './prompts';
 
 export async function generateDraft(
@@ -130,6 +140,8 @@ async function callLlmProvider(
   }
 
   if (anthropicKey) {
+    const anthropicModel =
+      settings.preferredModel?.startsWith('claude') ? settings.preferredModel : 'claude-3-5-sonnet-20241022';
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -138,7 +150,7 @@ async function callLlmProvider(
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
+        model: anthropicModel,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
         max_tokens: 1500,
@@ -156,7 +168,9 @@ async function callLlmProvider(
   }
 
   if (geminiKey) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+    const geminiModel =
+      settings.preferredModel?.startsWith('gemini') ? settings.preferredModel : 'gemini-1.5-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -493,3 +507,542 @@ function extractTitleAndHook(
 
   return { title, hook, cleanBody };
 }
+
+/**
+ * Splits a long-form draft into sequential 280-character tweets with numbered headers/footers.
+ */
+export function splitIntoTweetThread(content: string, hookTitle?: string): TweetThreadItem[] {
+  if (!content) return [];
+
+  // Strip top markdown header if redundant
+  let body = content.replace(/^#\s+[^\n]+\n+/, '').trim();
+
+  // Split into paragraphs
+  const paragraphs = body
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const rawTweets: string[] = [];
+
+  // Tweet 1: Hook Tweet
+  const opener = hookTitle
+    ? `🧵 1/ [Hook]\n\n${hookTitle}\n\nHere is what broke and how we solved it: 👇`
+    : `🧵 1/ [Dev Story]\n\n${paragraphs[0] || 'Building in public update: 👇'}`;
+
+  rawTweets.push(opener);
+
+  // If we used paragraph 0 for opener without hookTitle, skip it
+  const remaining = hookTitle ? paragraphs : paragraphs.slice(1);
+
+  for (const para of remaining) {
+    // Convert markdown subheadings to bold text
+    let cleaned = para.replace(/^#{1,4}\s+(.+)$/gm, '**$1**');
+
+    // If paragraph fits comfortably under 240 chars (leaving room for numbering)
+    if (cleaned.length <= 240) {
+      rawTweets.push(cleaned);
+    } else {
+      // Split by sentence endings
+      const sentences = cleaned.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [cleaned];
+      let currentChunk = '';
+      for (const sent of sentences) {
+        if ((currentChunk + sent).length <= 240) {
+          currentChunk += sent;
+        } else {
+          if (currentChunk.trim()) rawTweets.push(currentChunk.trim());
+          currentChunk = sent;
+        }
+      }
+      if (currentChunk.trim()) rawTweets.push(currentChunk.trim());
+    }
+  }
+
+  // Ensure at least 2 tweets
+  if (rawTweets.length === 1 && paragraphs.length > 0) {
+    rawTweets.push(paragraphs.join('\n\n').slice(0, 240));
+  }
+
+  const total = rawTweets.length;
+  return rawTweets.map((text, idx) => {
+    const num = idx + 1;
+    let formatted = text;
+    if (idx === 0) {
+      formatted = text.replace('1/', `1/${total}`);
+    } else {
+      formatted = `${num}/${total}\n\n${text}`;
+    }
+    return {
+      index: num,
+      total,
+      text: formatted,
+      charCount: formatted.length,
+      isValidLength: formatted.length <= 280,
+    };
+  });
+}
+
+/**
+ * Generates 5 high-converting, psychologically distinct headline variations for a commit.
+ */
+export function generateHeadlineVariations(
+  event: GitEvent,
+  settings?: EngineSettings
+): HeadlineVariation[] {
+  const title = event.title.replace(/^[a-z]+\([^)]+\):\s*/i, '').replace(/^[a-z]+:\s*/i, '');
+  const cat = event.worthiness.category;
+  const prod = settings?.productName || 'our SaaS';
+  const churn = `+${event.stats.additions} / -${event.stats.deletions}`;
+
+  const headlines: HeadlineVariation[] = [];
+
+  switch (cat) {
+    case 'database_migration':
+      headlines.push(
+        {
+          id: 'war_story',
+          angle: 'war_story',
+          label: 'The Outage / War Story',
+          headline: `The database deadlock that almost crippled our production cluster during peak traffic`,
+          explanation: 'Builds intense curiosity around a real near-miss outage.',
+        },
+        {
+          id: 'metric',
+          angle: 'metric',
+          label: 'The Data / Latency Win',
+          headline: `How 1 partial composite index slashed dashboard query latency by 85% (${churn} lines)`,
+          explanation: 'Specific percentage drop and line metrics trigger high developer clicks.',
+        },
+        {
+          id: 'contrarian',
+          angle: 'contrarian',
+          label: 'The Contrarian Take',
+          headline: `Why naive ORM migrations silently destroy Postgres database performance at scale`,
+          explanation: 'Challenges default developer tooling and sparks lively comments.',
+        },
+        {
+          id: 'vulnerable',
+          angle: 'vulnerable',
+          label: 'Founder Vulnerability',
+          headline: `I delayed this database refactor for 3 weeks because I was terrified of breaking user data`,
+          explanation: 'Radical honesty about imposter syndrome and technical fear.',
+        },
+        {
+          id: 'how_to',
+          angle: 'how_to',
+          label: 'Practical Engineering Tutorial',
+          headline: `Postgres Table Locks Explained: How we migrated high-traffic tables with zero downtime`,
+          explanation: 'Evergreen technical guide format favored on Reddit r/webdev and HN.',
+        }
+      );
+      break;
+
+    case 'bug_war_story':
+      headlines.push(
+        {
+          id: 'war_story',
+          angle: 'war_story',
+          label: 'The Outage / War Story',
+          headline: `We almost lost customer transactions to a 3-millisecond webhook race condition`,
+          explanation: 'Suspenseful incident hook describing a catastrophic edge case.',
+        },
+        {
+          id: 'metric',
+          angle: 'metric',
+          label: 'The Data / Latency Win',
+          headline: `Spent 6 hours hunting a production ghost bug. The fix took exactly 4 lines of code.`,
+          explanation: 'Relatable ratio of debugging pain to minimal code fix.',
+        },
+        {
+          id: 'contrarian',
+          angle: 'contrarian',
+          label: 'The Contrarian Take',
+          headline: `Why your integration tests won't catch concurrency bugs (and what to do instead)`,
+          explanation: 'Pushes back on conventional test suites.',
+        },
+        {
+          id: 'vulnerable',
+          angle: 'vulnerable',
+          label: 'Founder Vulnerability',
+          headline: `I felt sick when a customer sent a screenshot of our duplicate billing bug`,
+          explanation: 'Raw founder emotion that connects instantly with indie makers.',
+        },
+        {
+          id: 'how_to',
+          angle: 'how_to',
+          label: 'Practical Engineering Tutorial',
+          headline: `How to implement atomic idempotency locks in Redis without deadlocks`,
+          explanation: 'Actionable code recipe with immediate utility.',
+        }
+      );
+      break;
+
+    case 'performance':
+      headlines.push(
+        {
+          id: 'metric',
+          angle: 'metric',
+          label: 'The Data / Latency Win',
+          headline: `Benchmarking our streaming engine: Cutting peak memory usage by 92% (${churn} lines)`,
+          explanation: 'Direct before/after benchmark metric.',
+        },
+        {
+          id: 'war_story',
+          angle: 'war_story',
+          label: 'The Outage / War Story',
+          headline: `How an unnoticed memory leak almost pushed our server past its 4GB RAM threshold`,
+          explanation: 'Drama around server threshold limits.',
+        },
+        {
+          id: 'contrarian',
+          angle: 'contrarian',
+          label: 'The Contrarian Take',
+          headline: `Stop buffering large files in memory: Why Node.js TransformStream should be your default`,
+          explanation: 'Definite strong opinion backed by practical experience.',
+        },
+        {
+          id: 'vulnerable',
+          angle: 'vulnerable',
+          label: 'Founder Vulnerability',
+          headline: `I ignored our server memory graphs for a month until our first customer complained`,
+          explanation: 'Admitting neglect and highlighting the wake-up call.',
+        },
+        {
+          id: 'how_to',
+          angle: 'how_to',
+          label: 'Practical Engineering Tutorial',
+          headline: `Step-by-step: Profiling Node.js memory leaks with heap snapshots and Chrome DevTools`,
+          explanation: 'Hands-on tutorial with concrete tooling.',
+        }
+      );
+      break;
+
+    case 'ui_ux':
+      headlines.push(
+        {
+          id: 'metric',
+          angle: 'metric',
+          label: 'The Data / Conversion Win',
+          headline: `We killed our 3-step setup modal. Onboarding completion jumped by 34%.`,
+          explanation: 'Clear correlation between UI decision and business metrics.',
+        },
+        {
+          id: 'contrarian',
+          angle: 'contrarian',
+          label: 'The Contrarian Take',
+          headline: `Why modal wizards are the lazy developer's trap for bad user onboarding`,
+          explanation: 'Provocative design critique.',
+        },
+        {
+          id: 'vulnerable',
+          angle: 'vulnerable',
+          label: 'Founder Vulnerability',
+          headline: `I threw away 500 lines of UI code I spent a week building because users hated it`,
+          explanation: 'Sunken cost fallacy and founder humility.',
+        },
+        {
+          id: 'war_story',
+          angle: 'war_story',
+          label: 'The Outage / War Story',
+          headline: `Watching a user get stuck on our onboarding in a recorded session was painful`,
+          explanation: 'User testing war story.',
+        },
+        {
+          id: 'how_to',
+          angle: 'how_to',
+          label: 'Practical Engineering Tutorial',
+          headline: `How to build a buttery-smooth split-view Markdown editor with keyboard shortcuts in React`,
+          explanation: 'Frontend developer walkthrough with high bookmark appeal.',
+        }
+      );
+      break;
+
+    default:
+      headlines.push(
+        {
+          id: 'war_story',
+          angle: 'war_story',
+          label: 'The Engineering Reality',
+          headline: `What nobody tells you about shipping ${title} in a bootstrap product`,
+          explanation: 'Appeals to indie hacker realism.',
+        },
+        {
+          id: 'metric',
+          angle: 'metric',
+          label: 'The Metric Win',
+          headline: `Shipped ${title} (${churn} lines): What our first week of metrics looks like`,
+          explanation: 'Data-driven devlog format.',
+        },
+        {
+          id: 'contrarian',
+          angle: 'contrarian',
+          label: 'The Contrarian Take',
+          headline: `Why we built ${title} from scratch instead of paying for a third-party API`,
+          explanation: 'Build vs Buy debate generates high comment counts.',
+        },
+        {
+          id: 'vulnerable',
+          angle: 'vulnerable',
+          label: 'Founder Vulnerability',
+          headline: `I spent 4 days on ${title}. Was it worth delaying other roadmap features?`,
+          explanation: 'Invites the community to weigh in on roadmap prioritization.',
+        },
+        {
+          id: 'how_to',
+          angle: 'how_to',
+          label: 'Practical Engineering Tutorial',
+          headline: `Architecture breakdown: How we decoupled and shipped ${title} in ${prod}`,
+          explanation: 'High-value code design overview.',
+        }
+      );
+      break;
+  }
+
+  return headlines;
+}
+
+/**
+ * Recommends community-verified subreddits and posting advice based on commit category.
+ */
+export function getSubredditRecommendations(category: string): SubredditRecommendation[] {
+  const baseRedditUrl = 'https://www.reddit.com/r/';
+
+  switch (category) {
+    case 'database_migration':
+      return [
+        {
+          name: 'r/PostgreSQL',
+          sub: 'PostgreSQL',
+          matchReason: 'Direct domain fit for table locks, index tuning, and schema migration strategies.',
+          recommendedFlair: 'Discussion',
+          antiBanTips: 'Keep it 100% technical. Include EXPLAIN ANALYZE or SQL snippets. Do not link your product in the first paragraph.',
+          url: `${baseRedditUrl}PostgreSQL/submit`,
+        },
+        {
+          name: 'r/webdev',
+          sub: 'webdev',
+          matchReason: 'Massive audience (2.1M) for backend performance lessons and architectural war stories.',
+          recommendedFlair: 'Showoff Saturday',
+          antiBanTips: 'Follow the 9:1 participation rule. Focus on lessons learned for fellow full-stack devs.',
+          url: `${baseRedditUrl}webdev/submit`,
+        },
+        {
+          name: 'r/SideProject',
+          sub: 'SideProject',
+          matchReason: 'Welcoming community of 180k builders who love honest behind-the-scenes engineering posts.',
+          recommendedFlair: 'Showcase',
+          antiBanTips: 'Mention your tech stack in the title or first comment. Ask for peer feedback.',
+          url: `${baseRedditUrl}SideProject/submit`,
+        },
+      ];
+
+    case 'performance':
+      return [
+        {
+          name: 'r/programming',
+          sub: 'programming',
+          matchReason: '5.8M technical readers who appreciate concrete before/after benchmark numbers.',
+          recommendedFlair: 'Tech Discussion',
+          antiBanTips: 'No marketing hype. Provide reproduction steps, profiler snapshots, or memory traces.',
+          url: `${baseRedditUrl}programming/submit`,
+        },
+        {
+          name: 'r/webdev',
+          sub: 'webdev',
+          matchReason: 'High engagement for latency optimization, caching, and streaming fixes.',
+          recommendedFlair: 'Tips & Tutorials',
+          antiBanTips: 'Highlight the practical takeaway in bullet points for quick mobile scanning.',
+          url: `${baseRedditUrl}webdev/submit`,
+        },
+        {
+          name: 'r/SideProject',
+          sub: 'SideProject',
+          matchReason: 'Show what your SaaS does and how you engineered it to run fast on low hosting costs.',
+          recommendedFlair: 'Showcase',
+          antiBanTips: 'Be transparent about server costs and resource constraints.',
+          url: `${baseRedditUrl}SideProject/submit`,
+        },
+      ];
+
+    case 'bug_war_story':
+      return [
+        {
+          name: 'r/programming',
+          sub: 'programming',
+          matchReason: 'Classic post-mortem audience. Engineers love reading about strange edge cases.',
+          recommendedFlair: 'Post-Mortem',
+          antiBanTips: 'Write chronologically: Symptom -> False assumption -> The discovery -> The code fix.',
+          url: `${baseRedditUrl}programming/submit`,
+        },
+        {
+          name: 'r/SideProject',
+          sub: 'SideProject',
+          matchReason: 'Founders relate deeply to production bugs and stressful debugging sessions.',
+          recommendedFlair: 'Story',
+          antiBanTips: 'Keep the founder tone honest and vulnerable. Conclude with an open question.',
+          url: `${baseRedditUrl}SideProject/submit`,
+        },
+        {
+          name: 'r/webdev',
+          sub: 'webdev',
+          matchReason: 'Great for distributed systems, race conditions, and frontend/backend integration issues.',
+          recommendedFlair: 'Discussion',
+          antiBanTips: 'Include minimal reproducible code snippets showing the race condition.',
+          url: `${baseRedditUrl}webdev/submit`,
+        },
+      ];
+
+    case 'ui_ux':
+      return [
+        {
+          name: 'r/SideProject',
+          sub: 'SideProject',
+          matchReason: 'UI redesigns and before/after comparisons regularly reach #1 on the subreddit.',
+          recommendedFlair: 'Showcase',
+          antiBanTips: 'Explain the conversion numbers: why the old UI caused drop-off and how the new UI helps.',
+          url: `${baseRedditUrl}SideProject/submit`,
+        },
+        {
+          name: 'r/webdev',
+          sub: 'webdev',
+          matchReason: 'Discuss component architecture, CSS polish, and UX interaction design.',
+          recommendedFlair: 'Showoff Saturday',
+          antiBanTips: 'Discuss React/CSS state management tradeoffs rather than just aesthetic screenshots.',
+          url: `${baseRedditUrl}webdev/submit`,
+        },
+        {
+          name: 'r/SaaS',
+          sub: 'SaaS',
+          matchReason: 'Micro-SaaS founders eager to learn onboarding optimization and user retention tricks.',
+          recommendedFlair: 'Case Study',
+          antiBanTips: 'Focus on user psychology and activation metrics.',
+          url: `${baseRedditUrl}SaaS/submit`,
+        },
+      ];
+
+    default:
+      return [
+        {
+          name: 'r/SideProject',
+          sub: 'SideProject',
+          matchReason: 'Default home for indie builders sharing weekly progress and shipping updates.',
+          recommendedFlair: 'Showcase',
+          antiBanTips: 'Ask for feedback on specific features or UX tradeoffs. Engage in every comment.',
+          url: `${baseRedditUrl}SideProject/submit`,
+        },
+        {
+          name: 'r/SaaS',
+          sub: 'SaaS',
+          matchReason: 'Discussion on shipping speed, validation, and micro-SaaS tech stack.',
+          recommendedFlair: 'Discussion',
+          antiBanTips: 'Provide actionable lessons for other solo developers.',
+          url: `${baseRedditUrl}SaaS/submit`,
+        },
+        {
+          name: 'r/webdev',
+          sub: 'webdev',
+          matchReason: 'General web development discussion and technical architecture review.',
+          recommendedFlair: 'Showoff Saturday',
+          antiBanTips: 'Frame the post around technical decisions rather than product sales.',
+          url: `${baseRedditUrl}webdev/submit`,
+        },
+      ];
+  }
+}
+
+/**
+ * Compiles multiple selected commits into a cohesive Weekly Founder Digest.
+ */
+export function generateWeeklyDigest(
+  events: GitEvent[],
+  settings: EngineSettings
+): WeeklyDigest {
+  const prod = settings.productName || 'TCT PostPulse';
+  const totalCommits = events.length;
+  const totalAdditions = events.reduce((acc, e) => acc + (e.stats.additions || 0), 0);
+  const totalDeletions = events.reduce((acc, e) => acc + (e.stats.deletions || 0), 0);
+  const totalFiles = events.reduce((acc, e) => acc + (e.stats.totalFiles || 0), 0);
+
+  // Group events by category
+  const features = events.filter((e) => ['new_feature', 'ui_ux'].includes(e.worthiness.category));
+  const performance = events.filter((e) => ['performance', 'database_migration'].includes(e.worthiness.category));
+  const fixes = events.filter((e) => ['bug_war_story', 'security_auth'].includes(e.worthiness.category));
+  const others = events.filter((e) => !features.includes(e) && !performance.includes(e) && !fixes.includes(e));
+
+  // 1. Release Notes format
+  let releaseNotes = `# ${prod} — Sprint Release Notes\n\n`;
+  releaseNotes += `**Summary**: Shipped ${totalCommits} commits (+${totalAdditions} / -${totalDeletions} lines across ${totalFiles} files touched).\n\n`;
+
+  if (features.length > 0) {
+    releaseNotes += `### 🚀 New Features & UX Polish\n`;
+    for (const f of features) {
+      releaseNotes += `- **${f.title}**: ${f.description || 'Enhanced customer workflow and interface speed.'}\n`;
+    }
+    releaseNotes += `\n`;
+  }
+
+  if (performance.length > 0) {
+    releaseNotes += `### ⚡ Performance & Reliability\n`;
+    for (const p of performance) {
+      releaseNotes += `- **${p.title}**: Slashed latency and optimized database queries.\n`;
+    }
+    releaseNotes += `\n`;
+  }
+
+  if (fixes.length > 0) {
+    releaseNotes += `### 🛠️ Bug Fixes & Security\n`;
+    for (const fx of fixes) {
+      releaseNotes += `- **${fx.title}**: Hardened system boundaries and resolved edge-case race conditions.\n`;
+    }
+    releaseNotes += `\n`;
+  }
+
+  if (others.length > 0) {
+    releaseNotes += `### 🔧 Architecture & Maintenance\n`;
+    for (const o of others) {
+      releaseNotes += `- **${o.title}**\n`;
+    }
+    releaseNotes += `\n`;
+  }
+
+  // 2. Founder Newsletter format (Indie Hackers / Substack)
+  let newsletter = `# Shipped This Week: Building ${prod} in Public (Week Recap)\n\n`;
+  newsletter += `Another week in the trenches building **${prod}**. Here is the raw recap of what we actually shipped, what broke, and what we learned.\n\n`;
+  newsletter += `### 📊 Weekly Shipping Scorecard\n`;
+  newsletter += `- **Commits Pushed**: ${totalCommits}\n`;
+  newsletter += `- **Line Churn**: +${totalAdditions} / -${totalDeletions} lines\n`;
+  newsletter += `- **Files Touched**: ${totalFiles}\n\n`;
+
+  newsletter += `### 🛠️ Key Highlights & Founder Struggles\n`;
+  const topEvents = [...events].sort((a, b) => b.worthiness.score - a.worthiness.score).slice(0, 3);
+  for (const te of topEvents) {
+    newsletter += `#### ${te.title}\n`;
+    newsletter += `${te.description || 'A critical update resolving user bottlenecks and streamlining core platform workflows.'}\n`;
+    newsletter += `*Key Takeaway*: Solving this in commit \`${te.shortSha}\` proved that investing in foundational reliability always beats rushing half-baked features.\n\n`;
+  }
+
+  newsletter += `### 💡 Founder Reflection of the Week\n`;
+  newsletter += `Building as a solo founder is a balance between shipping user-visible polish and maintaining the backend engine. This week, we focused heavily on removing cognitive friction for users and ensuring rock-solid stability.\n\n`;
+  newsletter += `**Question for fellow builders**: How do you decide when to stop optimizing an existing system versus moving on to the next feature on your roadmap? Let's discuss in the comments below! 👇\n`;
+
+  // 3. Reddit Developer Roundup (r/SideProject, r/webdev)
+  let redditRecap = `**Weekly Devlog: What we shipped to ${prod} this week (+${totalAdditions}/-${totalDeletions} lines)**\n\n`;
+  redditRecap += `Hey r/SideProject! Quick weekly build-in-public update on what we pushed to production this week.\n\n`;
+  redditRecap += `**The Highlights:**\n`;
+  for (const ev of events.slice(0, 5)) {
+    redditRecap += `- **${ev.title}** (\`${ev.shortSha}\`): ${ev.description || 'Optimized performance and refined user experience.'}\n`;
+  }
+  redditRecap += `\n**What broke & what we learned:**\n`;
+  redditRecap += `The hardest commit this week was dealing with edge cases in production. Every time you think an edge case is "rare", real users will trigger it within 48 hours.\n\n`;
+  redditRecap += `Would love feedback on our architecture or release cycle. How do you handle continuous deployment in your side projects?`;
+
+  return {
+    newsletter,
+    releaseNotes,
+    redditRecap,
+    commitCount: totalCommits,
+    eventIds: events.map((e) => e.id),
+    generatedAt: new Date().toISOString(),
+  };
+}
+

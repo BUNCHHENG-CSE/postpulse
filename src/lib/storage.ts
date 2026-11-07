@@ -9,12 +9,12 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const EVENTS_FILE = path.join(DATA_DIR, 'events.json');
 const DRAFTS_FILE = path.join(DATA_DIR, 'drafts.json');
 
-const DEFAULT_SETTINGS: EngineSettings = {
-  productName: 'PostPulse',
+export const DEFAULT_SETTINGS: EngineSettings = {
+  productName: 'TCT PostPulse',
   productTagline: 'Turn your git commits into viral developer content automatically',
   targetAudience: 'Indie hackers, micro-SaaS founders, and full-stack software engineers',
   founderVoiceBio: 'Solo developer, ex-infrastructure engineer, no-nonsense technical tone with zero marketing hype',
-  repoUrl: 'https://github.com/developer/postpulse',
+  repoUrl: 'https://github.com/developer/tct-postpulse',
   githubWebhookSecret: 'dev_secret_content_engine_123',
   githubToken: '',
   preferredModel: 'gpt-4o-mini',
@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS: EngineSettings = {
 
 let hasInitializedDb = false;
 
-async function ensurePostgresInitialized() {
+async function ensureDatabaseInitialized() {
   if (hasInitializedDb) return;
   try {
     const isConnected = await checkDatabaseConnection();
@@ -85,7 +85,7 @@ async function ensurePostgresInitialized() {
       hasInitializedDb = true;
     }
   } catch (err) {
-    console.warn('PostgreSQL auto-initialization deferred:', err);
+    console.warn('Database auto-initialization deferred:', err);
   }
 }
 
@@ -98,7 +98,7 @@ async function ensureDataDir() {
 }
 
 export async function getSettings(): Promise<EngineSettings> {
-  await ensurePostgresInitialized();
+  await ensureDatabaseInitialized();
   try {
     const s = await prisma.settings.findUnique({ where: { id: 'default' } });
     if (s) {
@@ -133,7 +133,7 @@ export async function getSettings(): Promise<EngineSettings> {
 }
 
 export async function saveSettings(settings: Partial<EngineSettings>): Promise<EngineSettings> {
-  await ensurePostgresInitialized();
+  await ensureDatabaseInitialized();
   try {
     const updated = await prisma.settings.upsert({
       where: { id: 'default' },
@@ -145,9 +145,9 @@ export async function saveSettings(settings: Partial<EngineSettings>): Promise<E
         ...(settings.repoUrl !== undefined && { repoUrl: settings.repoUrl }),
         ...(settings.githubWebhookSecret !== undefined && { githubWebhookSecret: settings.githubWebhookSecret }),
         ...(settings.githubToken !== undefined && { githubToken: settings.githubToken }),
-        ...(settings.openaiApiKey !== undefined && { openaiApiKey: settings.openaiApiKey }),
-        ...(settings.anthropicApiKey !== undefined && { anthropicApiKey: settings.anthropicApiKey }),
-        ...(settings.geminiApiKey !== undefined && { geminiApiKey: settings.geminiApiKey }),
+        ...(settings.openaiApiKey !== undefined && !settings.openaiApiKey.includes('••••') && { openaiApiKey: settings.openaiApiKey }),
+        ...(settings.anthropicApiKey !== undefined && !settings.anthropicApiKey.includes('••••') && { anthropicApiKey: settings.anthropicApiKey }),
+        ...(settings.geminiApiKey !== undefined && !settings.geminiApiKey.includes('••••') && { geminiApiKey: settings.geminiApiKey }),
         ...(settings.preferredModel !== undefined && { preferredModel: settings.preferredModel }),
         ...(settings.minScoreToDraft !== undefined && { minScoreToDraft: settings.minScoreToDraft }),
         ...(settings.autoDraftOnWebhook !== undefined && { autoDraftOnWebhook: settings.autoDraftOnWebhook }),
@@ -187,13 +187,17 @@ export async function saveSettings(settings: Partial<EngineSettings>): Promise<E
 
   await ensureDataDir();
   const current = await getSettings();
-  const updated = { ...current, ...settings };
+  const cleanSettings = { ...settings };
+  if (cleanSettings.openaiApiKey?.includes('••••')) delete cleanSettings.openaiApiKey;
+  if (cleanSettings.anthropicApiKey?.includes('••••')) delete cleanSettings.anthropicApiKey;
+  if (cleanSettings.geminiApiKey?.includes('••••')) delete cleanSettings.geminiApiKey;
+  const updated = { ...current, ...cleanSettings };
   await fs.writeFile(SETTINGS_FILE, JSON.stringify(updated, null, 2), 'utf-8');
   return updated;
 }
 
 export async function getEvents(): Promise<GitEvent[]> {
-  await ensurePostgresInitialized();
+  await ensureDatabaseInitialized();
   try {
     const rows = await prisma.event.findMany({
       orderBy: { timestamp: 'desc' },
@@ -218,7 +222,7 @@ export async function getEvents(): Promise<GitEvent[]> {
 }
 
 export async function getEventById(id: string): Promise<GitEvent | null> {
-  await ensurePostgresInitialized();
+  await ensureDatabaseInitialized();
   try {
     const row = await prisma.event.findUnique({ where: { id } });
     if (row) return mapPrismaEventToGitEvent(row);
@@ -231,7 +235,7 @@ export async function getEventById(id: string): Promise<GitEvent | null> {
 }
 
 export async function saveEvent(event: GitEvent): Promise<GitEvent> {
-  await ensurePostgresInitialized();
+  await ensureDatabaseInitialized();
   try {
     await prisma.event.upsert({
       where: { id: event.id },
@@ -324,7 +328,7 @@ export async function deleteEvent(id: string): Promise<void> {
 }
 
 export async function getDrafts(): Promise<ContentDraft[]> {
-  await ensurePostgresInitialized();
+  await ensureDatabaseInitialized();
   try {
     const rows = await prisma.draft.findMany({
       orderBy: { createdAt: 'desc' },
@@ -346,7 +350,7 @@ export async function getDrafts(): Promise<ContentDraft[]> {
 }
 
 export async function getDraftsByEventId(eventId: string): Promise<ContentDraft[]> {
-  await ensurePostgresInitialized();
+  await ensureDatabaseInitialized();
   try {
     const rows = await prisma.draft.findMany({
       where: { eventId },
@@ -364,8 +368,9 @@ export async function getDraftsByEventId(eventId: string): Promise<ContentDraft[
 }
 
 export async function saveDraft(draft: ContentDraft): Promise<ContentDraft> {
+  let savedId = draft.id;
   try {
-    await prisma.draft.upsert({
+    const persisted = await prisma.draft.upsert({
       where: {
         eventId_format: {
           eventId: draft.eventId,
@@ -401,22 +406,24 @@ export async function saveDraft(draft: ContentDraft): Promise<ContentDraft> {
         createdAt: new Date(draft.createdAt),
       },
     });
+    savedId = persisted.id;
   } catch {
     // Fallback
   }
 
   await ensureDataDir();
   const drafts = await getDrafts();
-  const existingIdx = drafts.findIndex((d) => d.id === draft.id);
+  const finalDraft = { ...draft, id: savedId };
+  const existingIdx = drafts.findIndex((d) => d.id === savedId || (d.eventId === draft.eventId && d.format === draft.format));
 
   if (existingIdx >= 0) {
-    drafts[existingIdx] = draft;
+    drafts[existingIdx] = finalDraft;
   } else {
-    drafts.unshift(draft);
+    drafts.unshift(finalDraft);
   }
 
   await fs.writeFile(DRAFTS_FILE, JSON.stringify(drafts, null, 2), 'utf-8');
-  return draft;
+  return finalDraft;
 }
 
 export async function updateDraft(id: string, updates: Partial<ContentDraft>): Promise<ContentDraft | null> {
@@ -431,9 +438,18 @@ export async function updateDraft(id: string, updates: Partial<ContentDraft>): P
         ...(updates.wordCount !== undefined && { wordCount: updates.wordCount }),
         ...(updates.publishChecklist && { publishChecklist: updates.publishChecklist as any }),
         ...(updates.estimatedReadTime && { estimatedReadTime: updates.estimatedReadTime }),
+        ...(updates.publishedUrl !== undefined && { publishedUrl: updates.publishedUrl }),
         isEdited: true,
       },
     });
+
+    if (updates.publishedUrl) {
+      await prisma.event.update({
+        where: { id: updated.eventId },
+        data: { status: 'published' },
+      }).catch(() => {});
+    }
+
     return mapPrismaDraftToContentDraft(updated);
   } catch {
     // Fallback
@@ -445,8 +461,33 @@ export async function updateDraft(id: string, updates: Partial<ContentDraft>): P
 
   Object.assign(target, updates, { updatedAt: new Date().toISOString(), isEdited: true });
   await fs.writeFile(DRAFTS_FILE, JSON.stringify(drafts, null, 2), 'utf-8');
+
+  if (updates.publishedUrl) {
+    await updateEventStatus(target.eventId, 'published').catch(() => {});
+  }
+
   return target;
 }
+
+export async function batchDismissEvents(eventIds: string[]): Promise<void> {
+  try {
+    await prisma.event.updateMany({
+      where: { id: { in: eventIds } },
+      data: { status: 'dismissed' },
+    });
+  } catch {
+    // Fallback
+  }
+
+  const events = await getEvents();
+  for (const ev of events) {
+    if (eventIds.includes(ev.id)) {
+      ev.status = 'dismissed';
+    }
+  }
+  await fs.writeFile(EVENTS_FILE, JSON.stringify(events, null, 2), 'utf-8');
+}
+
 
 export async function resetToDefaultDataset(): Promise<GitEvent[]> {
   const seeded = getSeededEvents();
@@ -715,7 +756,7 @@ export function getSeededEvents(): GitEvent[] {
     return {
       id: raw.id,
       type: 'commit',
-      repo: 'alexrivera/postpulse-app',
+      repo: 'alexrivera/tct-postpulse-app',
       branch: 'main',
       author: {
         name: 'Alex Rivera',
@@ -727,7 +768,7 @@ export function getSeededEvents(): GitEvent[] {
       description: raw.description,
       sha: `${raw.sha}8376510394857120`,
       shortSha: raw.sha,
-      url: `https://github.com/alexrivera/postpulse-app/commit/${raw.sha}`,
+      url: `https://github.com/alexrivera/tct-postpulse-app/commit/${raw.sha}`,
       stats,
       files: raw.files,
       rawDiffSnippet: raw.files[0]?.patchSnippet,

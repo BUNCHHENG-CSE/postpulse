@@ -1,6 +1,41 @@
 import { PrismaClient } from '@prisma/client';
+import fs from 'fs';
 
-const prisma = new PrismaClient();
+// Load .env if present
+if (fs.existsSync('.env')) {
+  const envContent = fs.readFileSync('.env', 'utf-8');
+  for (const line of envContent.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+      const idx = trimmed.indexOf('=');
+      const key = trimmed.slice(0, idx).trim();
+      const val = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, '');
+      if (!process.env[key]) process.env[key] = val;
+    }
+  }
+}
+
+const dbUrl = process.env.DATABASE_URL || 'file:./dev.db';
+const isPostgres = dbUrl.startsWith('postgresql://') || dbUrl.startsWith('postgres://');
+
+let prisma;
+if (isPostgres) {
+  try {
+    const { PrismaNeon } = await import('@prisma/adapter-neon');
+    const { Pool, neonConfig } = await import('@neondatabase/serverless');
+    const ws = (await import('ws')).default;
+    if (!neonConfig.webSocketConstructor) {
+      neonConfig.webSocketConstructor = ws;
+    }
+    const pool = new Pool({ connectionString: dbUrl });
+    const adapter = new PrismaNeon(pool);
+    prisma = new PrismaClient({ adapter });
+  } catch {
+    prisma = new PrismaClient();
+  }
+} else {
+  prisma = new PrismaClient();
+}
 
 const now = Date.now();
 const day = 24 * 60 * 60 * 1000;
@@ -178,7 +213,7 @@ const seedEvents = [
 ];
 
 async function main() {
-  console.log('Seeding PostgreSQL database (localhost:5435/postpulse)...');
+  console.log('Seeding database (SQLite / DATABASE_URL)...');
 
   // 1. Settings
   await prisma.settings.upsert({
@@ -186,11 +221,11 @@ async function main() {
     update: {},
     create: {
       id: 'default',
-      productName: 'PostPulse',
+      productName: 'TCT PostPulse',
       productTagline: 'Turn your git commits into viral developer content automatically',
       targetAudience: 'Indie hackers, micro-SaaS founders, and full-stack software engineers',
       founderVoiceBio: 'Solo developer, ex-infrastructure engineer, no-nonsense technical tone with zero marketing hype',
-      repoUrl: 'https://github.com/developer/postpulse',
+      repoUrl: 'https://github.com/developer/tct-postpulse',
       githubWebhookSecret: 'dev_secret_content_engine_123',
       preferredModel: 'gpt-4o-mini',
       minScoreToDraft: 50,
@@ -216,7 +251,7 @@ async function main() {
       create: {
         id: evt.id,
         type: 'commit',
-        repo: 'alexrivera/postpulse-app',
+        repo: 'alexrivera/tct-postpulse-app',
         branch: 'main',
         authorName: 'Alex Rivera',
         authorUsername: 'alexrivera',
@@ -226,7 +261,7 @@ async function main() {
         description: evt.description,
         sha: `${evt.sha}8376510394857120`,
         shortSha: evt.sha,
-        url: `https://github.com/alexrivera/postpulse-app/commit/${evt.sha}`,
+        url: `https://github.com/alexrivera/tct-postpulse-app/commit/${evt.sha}`,
         additions: evt.additions,
         deletions: evt.deletions,
         totalFiles: evt.files.length,
@@ -240,7 +275,7 @@ async function main() {
       },
     });
   }
-  console.log(`[OK] ${seedEvents.length} benchmark events upserted into PostgreSQL.`);
+  console.log(`[OK] ${seedEvents.length} benchmark events upserted into database.`);
 
   // 3. Validation Grades
   const initialGrades = [
@@ -268,7 +303,7 @@ async function main() {
     });
   }
   console.log('[OK] Benchmark validation grades initialized.');
-  console.log('PostgreSQL database is fully seeded and ready for production!');
+  console.log('Database is fully seeded and ready for production!');
 }
 
 main()

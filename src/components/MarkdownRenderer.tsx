@@ -1,15 +1,15 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
+import { Copy, Check, Terminal } from 'lucide-react';
 
 interface MarkdownRendererProps {
   content: string;
 }
 
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
-  if (!content) return <div className="text-muted-foreground italic">No content to preview</div>;
+  if (!content) return <div className="text-slate-500 italic text-xs py-2">No content to preview</div>;
 
-  // Split lines and parse blocks cleanly
   const lines = content.split('\n');
   const elements: React.ReactNode[] = [];
   let inCodeBlock = false;
@@ -21,18 +21,13 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
     if (line.startsWith('```')) {
       if (inCodeBlock) {
         // Ending code block
+        const codeText = codeBlockLines.join('\n');
         elements.push(
-          <div key={`code-${index}`} className="my-4 rounded-lg overflow-hidden border border-slate-800 bg-slate-950">
-            {codeBlockLanguage && (
-              <div className="bg-slate-900 px-4 py-1.5 text-xs text-slate-400 font-mono border-b border-slate-800 flex justify-between">
-                <span>{codeBlockLanguage}</span>
-                <span>snippet</span>
-              </div>
-            )}
-            <pre className="p-4 overflow-x-auto text-xs md:text-sm font-mono text-emerald-400">
-              <code>{codeBlockLines.join('\n')}</code>
-            </pre>
-          </div>
+          <CodeSnippetBlock
+            key={`code-${index}`}
+            code={codeText}
+            language={codeBlockLanguage}
+          />
         );
         inCodeBlock = false;
         codeBlockLanguage = '';
@@ -54,7 +49,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
     // Headers
     if (line.startsWith('# ')) {
       elements.push(
-        <h1 key={`h1-${index}`} className="text-xl md:text-2xl font-bold text-slate-100 mt-6 mb-3 tracking-tight">
+        <h1 key={`h1-${index}`} className="text-xl md:text-2xl font-extrabold text-foreground mt-6 mb-3 tracking-tight">
           {formatInline(line.slice(2))}
         </h1>
       );
@@ -62,7 +57,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
     }
     if (line.startsWith('## ')) {
       elements.push(
-        <h2 key={`h2-${index}`} className="text-lg md:text-xl font-semibold text-slate-100 mt-5 mb-2 tracking-tight">
+        <h2 key={`h2-${index}`} className="text-lg md:text-xl font-bold text-foreground/90 mt-5 mb-2 tracking-tight">
           {formatInline(line.slice(3))}
         </h2>
       );
@@ -70,7 +65,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
     }
     if (line.startsWith('### ')) {
       elements.push(
-        <h3 key={`h3-${index}`} className="text-base md:text-lg font-medium text-indigo-300 mt-4 mb-2">
+        <h3 key={`h3-${index}`} className="text-base md:text-lg font-bold text-primary mt-4 mb-1.5">
           {formatInline(line.slice(4))}
         </h3>
       );
@@ -80,7 +75,10 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
     // Blockquote
     if (line.startsWith('> ')) {
       elements.push(
-        <blockquote key={`quote-${index}`} className="border-l-4 border-indigo-500 pl-4 py-1 my-3 text-slate-300 italic bg-indigo-950/20 rounded-r">
+        <blockquote
+          key={`quote-${index}`}
+          className="border-l-4 border-primary pl-4 py-2 my-3 text-muted-foreground italic bg-muted/40 rounded-r-lg text-sm"
+        >
           {formatInline(line.slice(2))}
         </blockquote>
       );
@@ -91,7 +89,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
     if (line.match(/^[\*\-]\s+(.+)/)) {
       const match = line.match(/^[\*\-]\s+(.+)/);
       elements.push(
-        <li key={`li-${index}`} className="ml-5 list-disc text-slate-300 my-1 leading-relaxed">
+        <li key={`li-${index}`} className="ml-5 list-disc text-foreground/90 my-1 text-sm leading-relaxed">
           {formatInline(match ? match[1] : line)}
         </li>
       );
@@ -102,7 +100,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
     if (line.match(/^\d+\.\s+(.+)/)) {
       const match = line.match(/^\d+\.\s+(.+)/);
       elements.push(
-        <li key={`nli-${index}`} className="ml-5 list-decimal text-slate-300 my-1 leading-relaxed">
+        <li key={`nli-${index}`} className="ml-5 list-decimal text-foreground/90 my-1 text-sm leading-relaxed">
           {formatInline(match ? match[1] : line)}
         </li>
       );
@@ -111,23 +109,53 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 
     // Empty lines
     if (!line.trim()) {
-      elements.push(<div key={`empty-${index}`} className="h-3" />);
+      elements.push(<div key={`empty-${index}`} className="h-2.5" />);
       return;
     }
 
     // Standard paragraph
     elements.push(
-      <p key={`p-${index}`} className="text-slate-300 leading-relaxed my-2 text-sm md:text-base">
+      <p key={`p-${index}`} className="text-foreground/90 leading-relaxed my-2 text-sm sm:text-[15px]">
         {formatInline(line)}
       </p>
     );
   });
 
-  return <div className="markdown-preview select-text">{elements}</div>;
+  return <div className="markdown-preview select-text space-y-0.5">{elements}</div>;
+}
+
+function CodeSnippetBlock({ code, language }: { code: string; language: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  return (
+    <div className="my-3 rounded-lg overflow-hidden border border-border bg-card shadow-xs">
+      <div className="bg-muted/70 px-3.5 py-1.5 text-xs text-muted-foreground font-mono border-b border-border flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <Terminal className="w-3.5 h-3.5 text-primary" />
+          <span>{language || 'code'}</span>
+        </div>
+        <button
+          onClick={handleCopy}
+          className="flex items-center space-x-1 text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded hover:bg-muted transition-colors"
+        >
+          {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+          <span>{copied ? 'Copied' : 'Copy'}</span>
+        </button>
+      </div>
+      <pre className="p-3.5 overflow-x-auto text-xs sm:text-sm font-mono text-foreground/90 bg-muted/20 leading-relaxed">
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
 }
 
 function formatInline(text: string): React.ReactNode {
-  // Simple regex for bold, inline code, and links
   const parts: React.ReactNode[] = [];
   const regex = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
 
@@ -142,7 +170,7 @@ function formatInline(text: string): React.ReactNode {
     const token = match[0];
     if (token.startsWith('**') && token.endsWith('**')) {
       parts.push(
-        <strong key={`b-${match.index}`} className="font-semibold text-slate-100">
+        <strong key={`b-${match.index}`} className="font-bold text-foreground">
           {token.slice(2, -2)}
         </strong>
       );
@@ -150,7 +178,7 @@ function formatInline(text: string): React.ReactNode {
       parts.push(
         <code
           key={`c-${match.index}`}
-          className="bg-slate-800 text-indigo-300 px-1.5 py-0.5 rounded text-xs font-mono"
+          className="bg-muted border border-border text-primary px-1.5 py-0.5 rounded text-xs font-mono font-medium"
         >
           {token.slice(1, -1)}
         </code>
@@ -164,7 +192,7 @@ function formatInline(text: string): React.ReactNode {
             href={linkMatch[2]}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
+            className="text-primary hover:underline underline-offset-2 font-medium"
           >
             {linkMatch[1]}
           </a>

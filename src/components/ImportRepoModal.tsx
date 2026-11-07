@@ -1,8 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Copy, Check, Terminal, ExternalLink, ArrowRight } from 'lucide-react';
+import { X, Copy, Check, ArrowRight } from 'lucide-react';
 import { GithubIcon } from './Icons';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 interface ImportRepoModalProps {
   isOpen: boolean;
@@ -53,72 +57,71 @@ export function ImportRepoModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in duration-150">
+      <Card className="border-border rounded-xl max-w-xl w-full p-6 shadow-xl relative bg-card">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800"
+          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-muted transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center space-x-2 text-indigo-400 mb-1">
+        <div className="flex items-center space-x-2 text-primary mb-1.5">
           <GithubIcon className="w-5 h-5" />
-          <h3 className="text-lg font-bold text-slate-100">Connect GitHub Repository</h3>
+          <h3 className="text-lg font-bold text-foreground tracking-tight">Connect GitHub Repository</h3>
         </div>
 
-        <p className="text-xs text-slate-400 mb-4">
+        <p className="text-xs text-muted-foreground mb-4">
           Connect your GitHub repository to stream commits and releases directly into the engine.
         </p>
 
         {/* Tab switch */}
-        <div className="flex bg-slate-950 border border-slate-800 rounded-lg p-1 text-xs mb-4">
+        <div className="flex bg-muted/60 border border-border rounded-md p-1 text-xs mb-4">
           <button
             onClick={() => setActiveTab('import')}
-            className={`flex-1 py-1.5 rounded-md font-medium transition-all ${
-              activeTab === 'import' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+            className={`flex-1 py-1.5 rounded font-semibold transition-all ${
+              activeTab === 'import' ? 'bg-primary text-primary-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             Import Commits via GitHub API
           </button>
           <button
             onClick={() => setActiveTab('webhook')}
-            className={`flex-1 py-1.5 rounded-md font-medium transition-all ${
-              activeTab === 'webhook' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+            className={`flex-1 py-1.5 rounded font-semibold transition-all ${
+              activeTab === 'webhook' ? 'bg-primary text-primary-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            Real-Time GitHub Webhook Setup
+            Real-Time GitHub Webhook
           </button>
         </div>
 
         {activeTab === 'import' ? (
           <form onSubmit={handleImportSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-foreground mb-1">
                 GitHub Repository URL or Owner/Repo
               </label>
-              <input
-                type="text"
+              <Input
                 required
                 value={repoInput}
                 onChange={(e) => setRepoInput(e.target.value)}
                 placeholder="e.g. facebook/react or vercel/next.js or your-username/your-repo"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                className="text-xs font-mono"
               />
-              <p className="text-[11px] text-slate-500 mt-1">
-                Fetches the latest 10 commits with full file diff churn and classifies their post-worthiness immediately.
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Fetches the latest commits with full file diff churn and classifies their post-worthiness immediately.
               </p>
             </div>
 
-            <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800 text-xs text-slate-400 space-y-1">
-              <span className="font-semibold text-slate-300 block">Quick Examples to Try:</span>
-              <div className="flex flex-wrap gap-2 pt-1">
+            <div className="bg-muted/40 p-3.5 rounded-lg border border-border text-xs text-muted-foreground space-y-2">
+              <span className="font-semibold text-foreground block">Quick Examples to Try:</span>
+              <div className="flex flex-wrap gap-2">
                 {['shadcn-ui/ui', 'tailwindlabs/tailwindcss', 'supabase/supabase'].map((sample) => (
                   <button
                     key={sample}
                     type="button"
                     onClick={() => setRepoInput(sample)}
-                    className="font-mono text-[11px] text-indigo-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded hover:bg-slate-800"
+                    className="font-mono text-[11px] text-primary bg-card border border-border hover:border-primary/40 px-2.5 py-1 rounded-md transition-colors"
                   >
                     {sample}
                   </button>
@@ -127,88 +130,92 @@ export function ImportRepoModal({
             </div>
 
             <div className="pt-2 flex justify-end space-x-2">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={onClose}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200"
+                className="text-xs"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
+                size="sm"
                 disabled={isImporting || !repoInput}
-                className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-semibold shadow-md shadow-indigo-600/20 disabled:opacity-50"
+                className="text-xs font-bold gap-1.5 shadow-xs"
               >
                 <span>{isImporting ? 'Fetching Commits...' : 'Import Commits Now'}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             </div>
           </form>
         ) : (
           <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-slate-300">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-foreground">
                 1. Webhook Payload URL
               </label>
               <div className="flex items-center space-x-2">
-                <input
-                  type="text"
+                <Input
                   readOnly
                   value={webhookUrl}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs font-mono text-slate-300 select-all"
+                  className="font-mono text-xs select-all"
                 />
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="icon-sm"
                   onClick={() => handleCopy(webhookUrl, 'url')}
-                  className="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg text-slate-200 border border-slate-700"
                 >
                   {copiedUrl ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                </button>
+                </Button>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-slate-300">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-foreground">
                 2. Webhook Secret (HMAC-SHA256)
               </label>
-              <input
-                type="text"
+              <Input
                 readOnly
                 value={webhookSecret || 'dev_secret_content_engine_123'}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs font-mono text-slate-400 select-all"
+                className="font-mono text-xs text-muted-foreground select-all"
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="block text-xs font-medium text-slate-300">
+                <label className="block text-xs font-semibold text-foreground">
                   3. Test via cURL Terminal Command:
                 </label>
                 <button
                   type="button"
                   onClick={() => handleCopy(curlExample, 'curl')}
-                  className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center space-x-1"
+                  className="text-[11px] text-primary hover:underline font-semibold flex items-center space-x-1"
                 >
                   {copiedCurl ? <span>Copied!</span> : <span>Copy cURL</span>}
                 </button>
               </div>
-              <pre className="text-[11px] font-mono text-slate-300 bg-slate-950 p-2.5 rounded-lg border border-slate-800 overflow-x-auto max-h-28">
+              <pre className="text-[11px] font-mono text-foreground bg-muted/40 p-3 rounded-lg border border-border overflow-x-auto max-h-28">
                 <code>{curlExample}</code>
               </pre>
             </div>
 
             <div className="pt-2 flex justify-end">
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={onClose}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-lg text-xs font-semibold"
+                className="text-xs font-semibold"
               >
                 Close
-              </button>
+              </Button>
             </div>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
