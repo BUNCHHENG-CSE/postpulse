@@ -10,20 +10,12 @@ export async function GET(req: NextRequest) {
     const minScore = searchParams.get('minScore');
     const status = searchParams.get('status');
 
-    let events = await getEvents();
-
-    if (category && category !== 'all') {
-      events = events.filter((e) => e.worthiness.category === category);
-    }
-
-    if (minScore) {
-      const scoreNum = parseInt(minScore, 10);
-      events = events.filter((e) => e.worthiness.score >= scoreNum);
-    }
-
-    if (status && status !== 'all') {
-      events = events.filter((e) => e.status === status);
-    }
+    const parsedScore = minScore ? parseInt(minScore, 10) : NaN;
+    const events = await getEvents({
+      category: category && category !== 'all' ? category : undefined,
+      status: status && status !== 'all' ? status : undefined,
+      minScore: Number.isNaN(parsedScore) ? undefined : parsedScore,
+    });
 
     return NextResponse.json({ events });
   } catch (err: any) {

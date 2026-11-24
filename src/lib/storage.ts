@@ -22,10 +22,49 @@ export const DEFAULT_SETTINGS: EngineSettings = {
   autoDraftOnWebhook: true,
 };
 
-let hasInitializedDb = false;
+function toEventCreateData(evt: GitEvent) {
+  return {
+    id: evt.id,
+    type: evt.type,
+    repo: evt.repo,
+    branch: evt.branch,
+    authorName: evt.author.name,
+    authorUsername: evt.author.username,
+    authorAvatarUrl: evt.author.avatarUrl,
+    timestamp: new Date(evt.timestamp),
+    title: evt.title,
+    description: evt.description,
+    sha: evt.sha,
+    shortSha: evt.shortSha,
+    url: evt.url,
+    additions: evt.stats.additions,
+    deletions: evt.stats.deletions,
+    totalFiles: evt.stats.totalFiles,
+    filesJson: evt.files as any,
+    rawDiffSnippet: evt.rawDiffSnippet,
+    worthinessScore: evt.worthiness.score,
+    category: evt.worthiness.category,
+    reasons: evt.worthiness.reasons as any,
+    recommendedHook: evt.worthiness.recommendedHook,
+    status: evt.status,
+  };
+}
 
-async function ensureDatabaseInitialized() {
-  if (hasInitializedDb) return;
+let hasInitializedDb = false;
+let initPromise: Promise<void> | null = null;
+
+// Memoized so concurrent first requests don't race to seed the database.
+function ensureDatabaseInitialized(): Promise<void> {
+  if (hasInitializedDb) return Promise.resolve();
+  if (!initPromise) {
+    initPromise = initializeDatabase().finally(() => {
+      initPromise = null;
+    });
+  }
+  return initPromise;
+}
+
+async function initializeDatabase() {
   try {
     const isConnected = await checkDatabaseConnection();
     if (isConnected) {
@@ -52,35 +91,7 @@ async function ensureDatabaseInitialized() {
       const count = await prisma.event.count();
       if (count === 0) {
         const seeded = getSeededEvents();
-        for (const evt of seeded) {
-          await prisma.event.create({
-            data: {
-              id: evt.id,
-              type: evt.type,
-              repo: evt.repo,
-              branch: evt.branch,
-              authorName: evt.author.name,
-              authorUsername: evt.author.username,
-              authorAvatarUrl: evt.author.avatarUrl,
-              timestamp: new Date(evt.timestamp),
-              title: evt.title,
-              description: evt.description,
-              sha: evt.sha,
-              shortSha: evt.shortSha,
-              url: evt.url,
-              additions: evt.stats.additions,
-              deletions: evt.stats.deletions,
-              totalFiles: evt.stats.totalFiles,
-              filesJson: evt.files as any,
-              rawDiffSnippet: evt.rawDiffSnippet,
-              worthinessScore: evt.worthiness.score,
-              category: evt.worthiness.category,
-              reasons: evt.worthiness.reasons as any,
-              recommendedHook: evt.worthiness.recommendedHook,
-              status: evt.status,
-            },
-          });
-        }
+        await prisma.event.createMany({ data: seeded.map(toEventCreateData) });
       }
       hasInitializedDb = true;
     }
@@ -196,14 +207,35 @@ export async function saveSettings(settings: Partial<EngineSettings>): Promise<E
   return updated;
 }
 
-export async function getEvents(): Promise<GitEvent[]> {
+export interface EventFilter {
+  category?: string;
+  status?: string;
+  minScore?: number;
+}
+
+function matchesFilter(e: GitEvent, f: EventFilter): boolean {
+  return (
+    (!f.category || e.worthiness.category === f.category) &&
+    (!f.status || e.status === f.status) &&
+    (f.minScore === undefined || e.worthiness.score >= f.minScore)
+  );
+}
+
+export async function getEvents(filter: EventFilter = {}): Promise<GitEvent[]> {
   await ensureDatabaseInitialized();
+  const hasFilter = Boolean(filter.category || filter.status || filter.minScore !== undefined);
   try {
+    // Filters run in the DB so the (status|category, worthinessScore) indexes are used.
     const rows = await prisma.event.findMany({
+      where: {
+        ...(filter.category && { category: filter.category }),
+        ...(filter.status && { status: filter.status }),
+        ...(filter.minScore !== undefined && { worthinessScore: { gte: filter.minScore } }),
+      },
       orderBy: { timestamp: 'desc' },
     });
 
-    if (rows.length > 0) {
+    if (rows.length > 0 || (hasFilter && (await prisma.event.count()) > 0)) {
       return rows.map(mapPrismaEventToGitEvent);
     }
   } catch {
@@ -211,14 +243,14 @@ export async function getEvents(): Promise<GitEvent[]> {
   }
 
   await ensureDataDir();
+  let events: GitEvent[];
   try {
-    const data = await fs.readFile(EVENTS_FILE, 'utf-8');
-    return JSON.parse(data);
+    events = JSON.parse(await fs.readFile(EVENTS_FILE, 'utf-8'));
   } catch {
-    const seeded = getSeededEvents();
-    await fs.writeFile(EVENTS_FILE, JSON.stringify(seeded, null, 2), 'utf-8');
-    return seeded;
+    events = getSeededEvents();
+    await fs.writeFile(EVENTS_FILE, JSON.stringify(events, null, 2), 'utf-8');
   }
+  return hasFilter ? events.filter((e) => matchesFilter(e, filter)) : events;
 }
 
 export async function getEventById(id: string): Promise<GitEvent | null> {
@@ -253,32 +285,9 @@ export async function saveEvent(event: GitEvent): Promise<GitEvent> {
         deletions: event.stats.deletions,
         totalFiles: event.stats.totalFiles,
       },
-      create: {
-        id: event.id,
-        type: event.type,
-        repo: event.repo,
-        branch: event.branch,
-        authorName: event.author.name,
-        authorUsername: event.author.username,
-        authorAvatarUrl: event.author.avatarUrl,
-        timestamp: new Date(event.timestamp),
-        title: event.title,
-        description: event.description,
-        sha: event.sha,
-        shortSha: event.shortSha,
-        url: event.url,
-        additions: event.stats.additions,
-        deletions: event.stats.deletions,
-        totalFiles: event.stats.totalFiles,
-        filesJson: event.files as any,
-        rawDiffSnippet: event.rawDiffSnippet,
-        worthinessScore: event.worthiness.score,
-        category: event.worthiness.category,
-        reasons: event.worthiness.reasons as any,
-        recommendedHook: event.worthiness.recommendedHook,
-        status: event.status,
-      },
+      create: toEventCreateData(event),
     });
+    return event;
   } catch {
     // Fallback to file
   }
@@ -303,6 +312,7 @@ export async function updateEventStatus(id: string, status: GitEvent['status']):
       where: { id },
       data: { status },
     });
+    return;
   } catch {
     // Fallback
   }
@@ -318,6 +328,7 @@ export async function updateEventStatus(id: string, status: GitEvent['status']):
 export async function deleteEvent(id: string): Promise<void> {
   try {
     await prisma.event.delete({ where: { id } });
+    return;
   } catch {
     // Fallback
   }
@@ -368,7 +379,6 @@ export async function getDraftsByEventId(eventId: string): Promise<ContentDraft[
 }
 
 export async function saveDraft(draft: ContentDraft): Promise<ContentDraft> {
-  let savedId = draft.id;
   try {
     const persisted = await prisma.draft.upsert({
       where: {
@@ -406,15 +416,15 @@ export async function saveDraft(draft: ContentDraft): Promise<ContentDraft> {
         createdAt: new Date(draft.createdAt),
       },
     });
-    savedId = persisted.id;
+    return { ...draft, id: persisted.id };
   } catch {
     // Fallback
   }
 
   await ensureDataDir();
   const drafts = await getDrafts();
-  const finalDraft = { ...draft, id: savedId };
-  const existingIdx = drafts.findIndex((d) => d.id === savedId || (d.eventId === draft.eventId && d.format === draft.format));
+  const finalDraft = { ...draft };
+  const existingIdx = drafts.findIndex((d) => d.id === draft.id || (d.eventId === draft.eventId && d.format === draft.format));
 
   if (existingIdx >= 0) {
     drafts[existingIdx] = finalDraft;
@@ -475,6 +485,7 @@ export async function batchDismissEvents(eventIds: string[]): Promise<void> {
       where: { id: { in: eventIds } },
       data: { status: 'dismissed' },
     });
+    return;
   } catch {
     // Fallback
   }
@@ -494,35 +505,7 @@ export async function resetToDefaultDataset(): Promise<GitEvent[]> {
   try {
     await prisma.draft.deleteMany({});
     await prisma.event.deleteMany({});
-    for (const evt of seeded) {
-      await prisma.event.create({
-        data: {
-          id: evt.id,
-          type: evt.type,
-          repo: evt.repo,
-          branch: evt.branch,
-          authorName: evt.author.name,
-          authorUsername: evt.author.username,
-          authorAvatarUrl: evt.author.avatarUrl,
-          timestamp: new Date(evt.timestamp),
-          title: evt.title,
-          description: evt.description,
-          sha: evt.sha,
-          shortSha: evt.shortSha,
-          url: evt.url,
-          additions: evt.stats.additions,
-          deletions: evt.stats.deletions,
-          totalFiles: evt.stats.totalFiles,
-          filesJson: evt.files as any,
-          rawDiffSnippet: evt.rawDiffSnippet,
-          worthinessScore: evt.worthiness.score,
-          category: evt.worthiness.category,
-          reasons: evt.worthiness.reasons as any,
-          recommendedHook: evt.worthiness.recommendedHook,
-          status: evt.status,
-        },
-      });
-    }
+    await prisma.event.createMany({ data: seeded.map(toEventCreateData) });
   } catch {
     // Fallback
   }

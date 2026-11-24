@@ -28,13 +28,9 @@ export async function POST(req: NextRequest) {
 
       // Auto-generate if enabled and meets score threshold
       if (settings.autoDraftOnWebhook && evt.worthiness.score >= settings.minScoreToDraft) {
-        const technical = await generateDraft(evt, 'technical_lesson', settings);
-        const bip = await generateDraft(evt, 'build_in_public', settings);
-        const changelog = await generateDraft(evt, 'changelog', settings);
-
-        await saveDraft(technical);
-        await saveDraft(bip);
-        await saveDraft(changelog);
+        const formats = ['technical_lesson', 'build_in_public', 'changelog'] as const;
+        const drafts = await Promise.all(formats.map((fmt) => generateDraft(evt, fmt, settings)));
+        await Promise.all(drafts.map(saveDraft));
 
         results.push({
           eventId: evt.id,

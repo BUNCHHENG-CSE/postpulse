@@ -94,15 +94,26 @@ export function Navbar({
             >
               <CheckCircle2
                 className={`w-3.5 h-3.5 ${
-                  validationPassed ? 'text-emerald-400' : 'text-amber-400'
+                  activeTab === 'benchmark'
+                    // Active tab sits on bg-primary (dark in light mode, near-white in dark mode)
+                    ? validationPassed
+                      ? 'text-emerald-400 dark:text-emerald-600'
+                      : 'text-amber-400 dark:text-amber-600'
+                    : validationPassed
+                      ? 'text-emerald-500 dark:text-emerald-400'
+                      : 'text-amber-500 dark:text-amber-400'
                 }`}
               />
               <span className="hidden sm:inline">Validation</span>
               <span
-                className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-semibold ${
-                  validationPassed
-                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border border-emerald-500/30'
-                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30'
+                className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-semibold border ${
+                  activeTab === 'benchmark'
+                    ? validationPassed
+                      ? 'bg-emerald-500/20 text-emerald-300 dark:text-emerald-700 border-emerald-500/40'
+                      : 'bg-amber-500/20 text-amber-300 dark:text-amber-700 border-amber-500/40'
+                    : validationPassed
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30'
+                      : 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/30'
                 }`}
               >
                 {publishableCount}/10
